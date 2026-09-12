@@ -1,143 +1,127 @@
 import 'dart:convert';
-import 'package:camera/camera.dart';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:camera/camera.dart';
 import 'package:http/http.dart' as http;
-import 'package:permission_handler/permission_handler.dart';
 
-// Emulator ke liye: http://10.0.2.2:5000
-// Asli phone ke liye: Laptop ka Wi-Fi IP (e.g. http://192.168.1.10:5000)
-const String baseUrl = "https://prabhakarsingh.pythonanywhere.com";
-
-late List<CameraDescription> cameras;
+List<CameraDescription> cameras = [];
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  cameras = await availableCameras();
-  runApp(const MaterialApp(
-    home: HomeScreen(),
-    debugShowCheckedModeBanner: false,
-  ));
+  try {
+    cameras = await availableCameras();
+  } catch (e) {
+    debugPrint("Camera error: $e");
+  }
+  runApp(const AttendanceApp());
 }
 
-// ---------------- HOME SCREEN ----------------
-class HomeScreen extends StatelessWidget {
-  const HomeScreen({super.key});
+class AttendanceApp extends StatelessWidget {
+  const AttendanceApp({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text("Face Attendance System"), centerTitle: true),
-      body: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            ElevatedButton.icon(
-              style: ElevatedButton.styleFrom(
-                minimumSize: const Size(double.infinity, 60),
-                backgroundColor: Colors.blueAccent,
-              ),
-              icon: const Icon(Icons.school, size: 28, color: Colors.white),
-              label: const Text("Student Portal", style: TextStyle(fontSize: 20, color: Colors.white)),
-              onPressed: () {
-                Navigator.push(context, MaterialPageRoute(builder: (_) => const StudentRollScreen()));
-              },
-            ),
-            const SizedBox(height: 30),
-            ElevatedButton.icon(
-              style: ElevatedButton.styleFrom(
-                minimumSize: const Size(double.infinity, 60),
-                backgroundColor: Colors.teal,
-              ),
-              icon: const Icon(Icons.person_pin, size: 28, color: Colors.white),
-              label: const Text("Teacher Portal", style: TextStyle(fontSize: 20, color: Colors.white)),
-              onPressed: () {
-                Navigator.push(context, MaterialPageRoute(builder: (_) => const TeacherDashboardScreen()));
-              },
-            ),
-          ],
-        ),
+    return MaterialApp(
+      title: 'Smart Attendance System',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        primarySwatch: Colors.indigo,
+        useMaterial3: true,
       ),
+      home: const TeacherLoginScreen(),
     );
   }
 }
 
-// ---------------- STUDENT: ROLL INPUT SCREEN ----------------
-class StudentRollScreen extends StatefulWidget {
-  const StudentRollScreen({super.key});
+const String baseUrl = "https://prabhakarsingh.pythonanywhere.com";
+
+// ================= 1. TEACHER LOGIN =================
+class TeacherLoginScreen extends StatefulWidget {
+  const TeacherLoginScreen({super.key});
 
   @override
-  State<StudentRollScreen> createState() => _StudentRollScreenState();
+  State<TeacherLoginScreen> createState() => _TeacherLoginScreenState();
 }
 
-class _StudentRollScreenState extends State<StudentRollScreen> {
-  final TextEditingController _rollController = TextEditingController();
+class _TeacherLoginScreenState extends State<TeacherLoginScreen> {
+  final _userController = TextEditingController();
+  final _passController = TextEditingController();
   bool _loading = false;
 
-  Future<void> _verifyRoll() async {
-    final roll = _rollController.text.trim();
-    if (roll.isEmpty) return;
-
+  Future<void> _login() async {
     setState(() => _loading = true);
-
     try {
       final res = await http.post(
-        Uri.parse("$BASE_URL/check-roll"),
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode({"roll_no": roll}),
+        Uri.parse('$baseUrl/api/teacher/login'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'username': _userController.text.trim(),
+          'password': _passController.text.trim(),
+        }),
       );
       final data = jsonDecode(res.body);
-
-      if (res.statusCode == 200) {
+      if (res.statusCode == 200 && data['success']) {
         if (!mounted) return;
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
-            builder: (_) => StudentBiometricScreen(rollNo: roll, studentName: data['name']),
+            builder: (_) => TeacherDashboard(teacher: data['teacher']),
           ),
         );
       } else {
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(data['message'] ?? "Roll number nahi mila!")),
+          SnackBar(content: Text(data['message'] ?? 'Login failed')),
         );
       }
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Server connect nahi hua: $e")),
+        SnackBar(content: Text('Connection error: $e')),
       );
     } finally {
-      setState(() => _loading = false);
+      if (mounted) setState(() => _loading = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Student Verification")),
+      appBar: AppBar(title: const Text('Teacher Authorization Gate')),
       body: Padding(
         padding: const EdgeInsets.all(24.0),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
+            const Icon(Icons.school, size: 80, color: Colors.indigo),
+            const SizedBox(height: 24),
             TextField(
-              controller: _rollController,
+              controller: _userController,
               decoration: const InputDecoration(
-                labelText: "Apna Roll Number Dalein",
+                labelText: 'Username (e.g. admin)',
                 border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.badge),
               ),
             ),
-            const SizedBox(height: 20),
-            _loading
-                ? const CircularProgressIndicator()
-                : SizedBox(
-                    width: double.infinity,
-                    height: 50,
-                    child: ElevatedButton(
-                      onPressed: _verifyRoll,
-                      child: const Text("Proceed to Biometric", style: TextStyle(fontSize: 16)),
-                    ),
-                  ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _passController,
+              obscureText: true,
+              decoration: const InputDecoration(
+                labelText: 'Password (e.g. admin123)',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              height: 48,
+              child: ElevatedButton(
+                onPressed: _loading ? null : _login,
+                child: _loading
+                    ? const CircularProgressIndicator()
+                    : const Text('Login to System', style: TextStyle(fontSize: 16)),
+              ),
+            ),
           ],
         ),
       ),
@@ -145,154 +129,83 @@ class _StudentRollScreenState extends State<StudentRollScreen> {
   }
 }
 
-// ---------------- STUDENT: BIOMETRIC SCREEN ----------------
-class StudentBiometricScreen extends StatefulWidget {
-  final String rollNo;
-  final String studentName;
-  const StudentBiometricScreen({super.key, required this.rollNo, required this.studentName});
-
-  @override
-  State<StudentBiometricScreen> createState() => _StudentBiometricScreenState();
-}
-
-class _StudentBiometricScreenState extends State<StudentBiometricScreen> {
-  CameraController? _controller;
-  bool _isProcessing = false;
-  String _message = "Chehra camera ke samne rakhein";
-
-  @override
-  void initState() {
-    super.initState();
-    _initCamera();
-  }
-
-  Future<void> _initCamera() async {
-    await Permission.camera.request();
-    CameraDescription selectedCam = cameras.first;
-    for (var cam in cameras) {
-      if (cam.lensDirection == CameraLensDirection.front) {
-        selectedCam = cam;
-        break;
-      }
-    }
-    _controller = CameraController(selectedCam, ResolutionPreset.medium);
-    await _controller!.initialize();
-    if (mounted) setState(() {});
-  }
-
-  Future<void> _verifyFaceAndMark() async {
-    if (_controller == null || !_controller!.value.isInitialized || _isProcessing) return;
-
-    setState(() {
-      _isProcessing = true;
-      _message = "Face database se match ho raha hai...";
-    });
-
-    try {
-      final XFile photo = await _controller!.takePicture();
-      var request = http.MultipartRequest('POST', Uri.parse("$BASE_URL/verify-attendance"));
-      request.fields['roll_no'] = widget.rollNo;
-      request.files.add(await http.MultipartFile.fromPath('image', photo.path));
-
-      var streamedResponse = await request.send();
-      var response = await http.Response.fromStream(streamedResponse);
-      var result = jsonDecode(response.body);
-
-      setState(() {
-        _message = result['message'] ?? "Response received";
-      });
-    } catch (e) {
-      setState(() => _message = "Error: $e");
-    } finally {
-      setState(() => _isProcessing = false);
-    }
-  }
-
-  @override
-  void dispose() {
-    _controller?.dispose();
-    super.dispose();
-  }
+// ================= 2. TEACHER DASHBOARD =================
+class TeacherDashboard extends StatelessWidget {
+  final Map<String, dynamic> teacher;
+  const TeacherDashboard({super.key, required this.teacher});
 
   @override
   Widget build(BuildContext context) {
-    if (_controller == null || !_controller!.value.isInitialized) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
     return Scaffold(
-      appBar: AppBar(title: Text("Verify: ${widget.studentName}")),
-      body: Column(
-        children: [
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(16),
-                child: CameraPreview(_controller!),
-              ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              children: [
-                Text(
-                  _message,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 16),
-                _isProcessing
-                    ? const CircularProgressIndicator()
-                    : SizedBox(
-                        width: double.infinity,
-                        height: 50,
-                        child: ElevatedButton.icon(
-                          onPressed: _verifyFaceAndMark,
-                          icon: const Icon(Icons.fingerprint),
-                          label: const Text("Scan Face & Verify"),
-                        ),
-                      ),
-              ],
-            ),
+      appBar: AppBar(
+        title: Text(teacher['name']),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout),
+            onPressed: () {
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(builder: (_) => const TeacherLoginScreen()),
+              );
+            },
           )
         ],
       ),
-    );
-  }
-}
-
-// ---------------- TEACHER: DASHBOARD ----------------
-class TeacherDashboardScreen extends StatelessWidget {
-  const TeacherDashboardScreen({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text("Teacher Dashboard")),
       body: Padding(
-        padding: const EdgeInsets.all(24.0),
+        padding: const EdgeInsets.all(20.0),
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            Card(
+              elevation: 2,
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text("Subject: ${teacher['subject']}",
+                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                    Text("Teacher ID: #${teacher['id']}",
+                        style: const TextStyle(color: Colors.grey)),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
             ElevatedButton.icon(
-              style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 55)),
               icon: const Icon(Icons.person_add),
-              label: const Text("Add New Student (Photo + Details)", style: TextStyle(fontSize: 16)),
+              label: const Text("Register New Student (Global)"),
               onPressed: () {
-                Navigator.push(context, MaterialPageRoute(builder: (_) => const TeacherAddStudentScreen()));
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const RegisterStudentScreen()),
+                );
               },
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 16),
             ElevatedButton.icon(
-              style: ElevatedButton.styleFrom(
-                minimumSize: const Size(double.infinity, 55),
-                backgroundColor: Colors.deepPurple,
-              ),
-              icon: const Icon(Icons.calendar_month, color: Colors.white),
-              label: const Text("Attendance Calendar View", style: TextStyle(fontSize: 16, color: Colors.white)),
+              icon: const Icon(Icons.camera_alt),
+              label: const Text("Take Lecture Attendance (Blink Verify)"),
               onPressed: () {
-                Navigator.push(context, MaterialPageRoute(builder: (_) => const AttendanceCalendarScreen()));
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => MarkAttendanceScreen(teacher: teacher),
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton.icon(
+              icon: const Icon(Icons.list_alt),
+              label: const Text("View My Lecture Attendance Records"),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => ViewAttendanceScreen(teacherId: teacher['id']),
+                  ),
+                );
               },
             ),
           ],
@@ -302,64 +215,72 @@ class TeacherDashboardScreen extends StatelessWidget {
   }
 }
 
-// ---------------- TEACHER: ADD STUDENT SCREEN ----------------
-class TeacherAddStudentScreen extends StatefulWidget {
-  const TeacherAddStudentScreen({super.key});
+// ================= 3. REGISTER STUDENT =================
+class RegisterStudentScreen extends StatefulWidget {
+  const RegisterStudentScreen({super.key});
 
   @override
-  State<TeacherAddStudentScreen> createState() => _TeacherAddStudentScreenState();
+  State<RegisterStudentScreen> createState() => _RegisterStudentScreenState();
 }
 
-class _TeacherAddStudentScreenState extends State<TeacherAddStudentScreen> {
-  final TextEditingController _nameController = TextEditingController();
-  final TextEditingController _rollController = TextEditingController();
-  CameraController? _controller;
+class _RegisterStudentScreenState extends State<RegisterStudentScreen> {
+  final _rollController = TextEditingController();
+  final _nameController = TextEditingController();
+  CameraController? _cameraController;
   bool _loading = false;
 
   @override
   void initState() {
     super.initState();
-    _initCam();
-  }
-
-  Future<void> _initCam() async {
-    _controller = CameraController(cameras.first, ResolutionPreset.medium);
-    await _controller!.initialize();
-    if (mounted) setState(() {});
-  }
-
-  Future<void> _saveStudent() async {
-    if (_nameController.text.isEmpty || _rollController.text.isEmpty || _controller == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Saari details bharein!")));
-      return;
-    }
-
-    setState(() => _loading = true);
-
-    try {
-      final photo = await _controller!.takePicture();
-      var req = http.MultipartRequest('POST', Uri.parse("$BASE_URL/register"));
-      req.fields['name'] = _nameController.text.trim();
-      req.fields['roll_no'] = _rollController.text.trim();
-      req.files.add(await http.MultipartFile.fromPath('image', photo.path));
-
-      var res = await req.send();
-      var response = await http.Response.fromStream(res);
-      var json = jsonDecode(response.body);
-
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(json['message'])));
-      if (res.statusCode == 200) Navigator.pop(context);
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
-    } finally {
-      setState(() => _loading = false);
+    if (cameras.isNotEmpty) {
+      _cameraController = CameraController(
+        cameras.firstWhere(
+          (c) => c.lensDirection == CameraLensDirection.front,
+          orElse: () => cameras.first,
+        ),
+        ResolutionPreset.medium,
+      );
+      _cameraController!.initialize().then((_) => setState(() {}));
     }
   }
 
   @override
   void dispose() {
-    _controller?.dispose();
+    _cameraController?.dispose();
     super.dispose();
+  }
+
+  Future<void> _captureAndRegister() async {
+    if (_cameraController == null || !_cameraController!.value.isInitialized) return;
+    setState(() => _loading = true);
+
+    try {
+      final file = await _cameraController!.takePicture();
+      Uint8List bytes = await file.readAsBytes();
+      String imgBase64 = base64Encode(bytes);
+
+      final res = await http.post(
+        Uri.parse('$baseUrl/api/student/register'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'roll_no': _rollController.text.trim(),
+          'name': _nameController.text.trim(),
+          'image': imgBase64,
+        }),
+      );
+
+      final data = jsonDecode(res.body);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(data['message'] ?? '')),
+      );
+      if (data['success']) Navigator.pop(context);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   @override
@@ -370,16 +291,26 @@ class _TeacherAddStudentScreenState extends State<TeacherAddStudentScreen> {
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            TextField(controller: _nameController, decoration: const InputDecoration(labelText: "Student Name")),
-            TextField(controller: _rollController, decoration: const InputDecoration(labelText: "Roll Number")),
+            TextField(
+              controller: _rollController,
+              decoration: const InputDecoration(labelText: "Roll No (Unique)", border: OutlineInputBorder()),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _nameController,
+              decoration: const InputDecoration(labelText: "Student Name", border: OutlineInputBorder()),
+            ),
             const SizedBox(height: 16),
-            _controller != null && _controller!.value.isInitialized
-                ? SizedBox(height: 250, child: CameraPreview(_controller!))
-                : const CircularProgressIndicator(),
+            if (_cameraController != null && _cameraController!.value.isInitialized)
+              SizedBox(
+                height: 250,
+                child: CameraPreview(_cameraController!),
+              ),
             const SizedBox(height: 16),
-            _loading
-                ? const CircularProgressIndicator()
-                : ElevatedButton(onPressed: _saveStudent, child: const Text("Capture Photo & Register")),
+            ElevatedButton(
+              onPressed: _loading ? null : _captureAndRegister,
+              child: _loading ? const CircularProgressIndicator() : const Text("Capture Face & Save"),
+            )
           ],
         ),
       ),
@@ -387,37 +318,138 @@ class _TeacherAddStudentScreenState extends State<TeacherAddStudentScreen> {
   }
 }
 
-// ---------------- TEACHER: CALENDAR VIEW ----------------
-class AttendanceCalendarScreen extends StatefulWidget {
-  const AttendanceCalendarScreen({super.key});
+// ================= 4. BLINK ATTENDANCE VERIFY =================
+class MarkAttendanceScreen extends StatefulWidget {
+  final Map<String, dynamic> teacher;
+  const MarkAttendanceScreen({super.key, required this.teacher});
 
   @override
-  State<AttendanceCalendarScreen> createState() => _AttendanceCalendarScreenState();
+  State<MarkAttendanceScreen> createState() => _MarkAttendanceScreenState();
 }
 
-class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen> {
-  DateTime _selectedDate = DateTime.now();
-  List<dynamic> _attendanceList = [];
-  bool _loading = false;
+class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
+  CameraController? _cameraController;
+  bool _verifying = false;
+  String _status = "Camera ke aage dekhein aur 1 baar Eye Blink karein";
 
   @override
   void initState() {
     super.initState();
-    _fetchAttendanceForDate(_selectedDate);
+    if (cameras.isNotEmpty) {
+      _cameraController = CameraController(
+        cameras.firstWhere(
+          (c) => c.lensDirection == CameraLensDirection.front,
+          orElse: () => cameras.first,
+        ),
+        ResolutionPreset.medium,
+      );
+      _cameraController!.initialize().then((_) => setState(() {}));
+    }
   }
 
-  Future<void> _fetchAttendanceForDate(DateTime date) async {
-    setState(() => _loading = true);
-    String formattedDate = "${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}";
+  @override
+  void dispose() {
+    _cameraController?.dispose();
+    super.dispose();
+  }
+
+  Future<void> _processBlinkAttendance() async {
+    if (_cameraController == null || !_cameraController!.value.isInitialized) return;
+    setState(() {
+      _verifying = true;
+      _status = "Eye open frame capture ho raha hai...";
+    });
 
     try {
-      final res = await http.get(Uri.parse("$BASE_URL/get-attendance-by-date?date=$formattedDate"));
+      final openFile = await _cameraController!.takePicture();
+      String openB64 = base64Encode(await openFile.readAsBytes());
+
+      setState(() => _status = "Ab blink karein (Capture in 700ms)...");
+      await Future.delayed(const Duration(milliseconds: 700));
+
+      final blinkFile = await _cameraController!.takePicture();
+      String blinkB64 = base64Encode(await blinkFile.readAsBytes());
+
+      setState(() => _status = "Database se match aur Liveness check ho raha hai...");
+
+      final res = await http.post(
+        Uri.parse('$baseUrl/api/attendance/mark'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'teacher_id': widget.teacher['id'],
+          'subject': widget.teacher['subject'],
+          'open_eye_image': openB64,
+          'blink_eye_image': blinkB64,
+        }),
+      );
+
       final data = jsonDecode(res.body);
-      if (res.statusCode == 200) {
-        setState(() => _attendanceList = data['data']);
+      setState(() => _status = data['message'] ?? 'Processed');
+    } catch (e) {
+      setState(() => _status = "Verification failed: $e");
+    } finally {
+      setState(() => _verifying = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text("${widget.teacher['subject']} Attendance")),
+      body: Column(
+        children: [
+          if (_cameraController != null && _cameraController!.value.isInitialized)
+            Expanded(child: CameraPreview(_cameraController!)),
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              children: [
+                Text(_status,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 12),
+                ElevatedButton.icon(
+                  icon: const Icon(Icons.remove_red_eye),
+                  label: const Text("Start Blink & Verify"),
+                  onPressed: _verifying ? null : _processBlinkAttendance,
+                )
+              ],
+            ),
+          )
+        ],
+      ),
+    );
+  }
+}
+
+// ================= 5. ISOLATED ATTENDANCE VIEW =================
+class ViewAttendanceScreen extends StatefulWidget {
+  final int teacherId;
+  const ViewAttendanceScreen({super.key, required this.teacherId});
+
+  @override
+  State<ViewAttendanceScreen> createState() => _ViewAttendanceScreenState();
+}
+
+class _ViewAttendanceScreenState extends State<ViewAttendanceScreen> {
+  List records = [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchRecords();
+  }
+
+  Future<void> _fetchRecords() async {
+    try {
+      final res = await http.get(Uri.parse('$baseUrl/api/teacher/attendance/${widget.teacherId}'));
+      final data = jsonDecode(res.body);
+      if (data['success']) {
+        setState(() => records = data['records']);
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Data fetch nahi hua: $e")));
+      debugPrint("Fetch error: $e");
     } finally {
       setState(() => _loading = false);
     }
@@ -426,49 +458,27 @@ class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Attendance Calendar")),
-      body: Column(
-        children: [
-          CalendarDatePicker(
-            initialDate: _selectedDate,
-            firstDate: DateTime(2025),
-            lastDate: DateTime(2030),
-            onDateChanged: (newDate) {
-              setState(() => _selectedDate = newDate);
-              _fetchAttendanceForDate(newDate);
-            },
-          ),
-          const Divider(),
-          Expanded(
-            child: _loading
-                ? const Center(child: CircularProgressIndicator())
-                : _attendanceList.isEmpty
-                    ? const Center(child: Text("Is din ka koi record nahi hai"))
-                    : ListView.builder(
-                        itemCount: _attendanceList.length,
-                        itemBuilder: (ctx, i) {
-                          final item = _attendanceList[i];
-                          bool isPresent = item['status'] == 'PRESENT';
-                          return ListTile(
-                            leading: Icon(
-                              isPresent ? Icons.check_circle : Icons.cancel,
-                              color: isPresent ? Colors.green : Colors.red,
-                            ),
-                            title: Text("${item['name']} (Roll: ${item['roll_no']})"),
-                            subtitle: Text("Time: ${item['time']}"),
-                            trailing: Text(
-                              item['status'],
-                              style: TextStyle(
-                                color: isPresent ? Colors.green : Colors.red,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          );
-                        },
+      appBar: AppBar(title: const Text("My Lecture Attendance")),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : records.isEmpty
+              ? const Center(child: Text("Aaj koi attendance record nahi hai."))
+              : ListView.builder(
+                  itemCount: records.length,
+                  itemBuilder: (context, i) {
+                    final item = records[i];
+                    return Card(
+                      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      child: ListTile(
+                        leading: const CircleAvatar(child: Icon(Icons.check, color: Colors.green)),
+                        title: Text("${item['name']} (${item['roll_no']})"),
+                        subtitle: Text("${item['subject']} | Time: ${item['time']}"),
+                        trailing: Text(item['status'],
+                            style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
                       ),
-          ),
-        ],
-      ),
+                    );
+                  },
+                ),
     );
   }
 }
