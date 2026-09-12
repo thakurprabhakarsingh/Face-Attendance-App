@@ -6,7 +6,7 @@ import 'package:permission_handler/permission_handler.dart';
 
 // Emulator ke liye: http://10.0.2.2:5000
 // Asli phone ke liye: Laptop ka Wi-Fi IP (e.g. http://192.168.1.10:5000)
-const String BASE_URL = "http://10.44.227.71:5000";
+const String baseUrl = "https://prabhakarsingh.pythonanywhere.com";
 
 late List<CameraDescription> cameras;
 
